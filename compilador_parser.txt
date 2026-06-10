@@ -1,0 +1,799 @@
+/*
+ * ============================================================
+ *  COMPILADOR — LEXER + PARSER (CST + AST)
+ * ============================================================
+ */
+
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <vector>
+#include <cctype>
+#include <algorithm>
+#include <memory>
+
+using namespace std;
+
+// ============================================================
+//  SECCIÓN 1: TOKENS
+// ============================================================
+
+vector<string> keywords = {
+    "#include", "using", "namespace", "std",
+    "int", "float", "void", "bool", "char",
+    "return", "if", "else", "while", "for",
+    "true", "false", "break", "continue"
+};
+
+bool esKeyword(const string& p) {
+    return find(keywords.begin(), keywords.end(), p) != keywords.end();
+}
+
+bool esTipoDato(const string& lex) {
+    return lex=="int"||lex=="float"||lex=="void"||lex=="bool"||lex=="char";
+}
+
+struct Token {
+    string lexema, tipo;
+    int linea;
+};
+
+
+// ============================================================
+//  SECCIÓN 2: ANALIZADOR LÉXICO (LEXER)
+// ============================================================
+
+// Lee el archivo fuente carácter a carácter 
+
+bool analizarLexico(const string& arch,
+                    vector<Token>& toks,
+                    vector<string>& tabla)
+{
+    ifstream f(arch);
+    if (!f.is_open()) { cout<<"Error: No se pudo abrir '"<<arch<<"'.\n"; return false; }
+
+    string linea; int numL=0; bool err=false;
+
+    while (getline(f, linea)) {
+        numL++; int i=0, n=linea.length();
+        while (i<n) {
+            char c=linea[i];
+
+            // Espacios en blanco: se ignoran
+            if (isspace(c)){i++;continue;}
+
+            // Comentario de línea //
+            if (c=='/'&&i+1<n&&linea[i+1]=='/') break;
+
+            // Comentario de bloque /* ... */ (puede ser multilínea)
+            if (c=='/'&&i+1<n&&linea[i+1]=='*'){
+                i+=2; bool ok=false;
+                while(!ok){
+                    while(i<(int)linea.size()){
+                        if(linea[i]=='*'&&i+1<(int)linea.size()&&linea[i+1]=='/'){i+=2;ok=true;break;}
+                        i++;
+                    }
+                    if(!ok){
+                        if(!getline(f,linea)){cout<<"Error lexico: Comentario no cerrado.\n";err=true;ok=true;}
+                        else{numL++;n=linea.length();i=0;}
+                    }
+                }
+                continue;
+            }
+
+            // Literal de cadena "..."
+            if (c=='"'){
+                string t="\""; i++;
+                while(i<n&&linea[i]!='"') t+=linea[i++];
+                if(i==n){cout<<"Error lexico [linea "<<numL<<"]: Cadena no cerrada.\n";err=true;}
+                else{t+='"';i++;toks.push_back({t,"LITERAL_STRING",numL});}
+                continue;
+            }
+
+            // Literal de carácter '...'
+            if (c=='\''){
+                string t="'"; i++;
+                while(i<n&&linea[i]!='\'') t+=linea[i++];
+                if(i==n){cout<<"Error lexico [linea "<<numL<<"]: Char no cerrado.\n";err=true;}
+                else{t+='\'';i++;toks.push_back({t,"LITERAL_CHAR",numL});}
+                continue;
+            }
+
+            // Identificadores y palabras reservadas
+            // Comienzan con letra, '_' o '#' (directivas de preprocesador)
+            if (isalpha(c)||c=='_'||c=='#'){
+                string p;
+                while(i<n&&(isalnum(linea[i])||linea[i]=='_'||linea[i]=='#')) p+=linea[i++];
+                if(esKeyword(p)){toks.push_back({p,"KEYWORD",numL});}
+                else{
+                    toks.push_back({p,"IDENTIFIER",numL});
+                    if(find(tabla.begin(),tabla.end(),p)==tabla.end()) tabla.push_back(p);
+                }
+                continue;
+            }
+
+            // Números enteros y flotantes
+            if (isdigit(c)){
+                string num; bool esF=false;
+                while(i<n&&(isdigit(linea[i])||linea[i]=='.')){
+                    if(linea[i]=='.'){
+                        if(esF){cout<<"Error lexico [linea "<<numL<<"]: Flotante malformado.\n";err=true;break;}
+                        esF=true;
+                    }
+                    num+=linea[i++];
+                }
+                toks.push_back({num,esF?"LITERAL_FLOAT":"LITERAL_INT",numL});
+                continue;
+            }
+
+            // Operadores de DOS caracteres (se verifican primero)
+            auto op2=[&](char a,char b,const string& lex)->bool{
+                if(c==a&&i+1<n&&linea[i+1]==b){toks.push_back({lex,"OPERATOR",numL});i+=2;return true;}
+                return false;
+            };
+            if(op2('<','<',"<<"))continue; if(op2('>','>',">>"))continue;
+            if(op2('=','=',"=="))continue; if(op2('!','=',"!="))continue;
+            if(op2('<','=',"<="))continue; if(op2('>','=',">="))continue;
+            if(op2('+','+',"++"))continue; if(op2('-','-',"--"))continue;
+            if(op2('+','=',"+="))continue; if(op2('-','=',"-="))continue;
+            if(op2('*','=',"*="))continue; if(op2('/','=',"/="))continue;
+
+            // Operadores de UN carácter
+            if(string("=+-*/<>!&|%").find(c)!=string::npos){
+                toks.push_back({string(1,c),"OPERATOR",numL});i++;continue;
+            }
+
+            // Delimitadores
+            if(string(";(){}[],:.").find(c)!=string::npos){
+                toks.push_back({string(1,c),"DELIMITER",numL});i++;continue;
+            }
+
+            // Error léxico: carácter no reconocido
+            cout<<"Error lexico [linea "<<numL<<"]: Caracter invalido '"<<c<<"'.\n";
+            err=true; i++;
+        }
+    }
+    f.close();
+    return !err;
+}
+
+
+// ============================================================
+//  SECCIÓN 3: NODO DE ÁRBOL (compartido por CST y AST)
+// ============================================================
+
+struct NodoArbol {
+    string tipo, valor;
+    vector<shared_ptr<NodoArbol>> hijos;
+    NodoArbol(string t, string v=""):tipo(move(t)),valor(move(v)){}
+    void agregar(shared_ptr<NodoArbol> h){if(h)hijos.push_back(h);}
+};
+using Nodo=shared_ptr<NodoArbol>;
+
+Nodo mkN(const string& t,const string& v=""){return make_shared<NodoArbol>(t,v);}
+
+// Imprime el árbol con sangría visual
+void imprimirArbol(Nodo n,const string& ind="",bool ult=true){
+    if(!n)return;
+    cout<<ind<<(ult?"└── ":"├── ")<<"["<<n->tipo;
+    if(!n->valor.empty())cout<<": "<<n->valor;
+    cout<<"]\n";
+    string sig=ind+(ult?"    ":"│   ");
+    for(int i=0;i<(int)n->hijos.size();i++)
+        imprimirArbol(n->hijos[i],sig,i==(int)n->hijos.size()-1);
+}
+
+
+// ============================================================
+//  SECCIÓN 4: PARSER 
+// ============================================================
+
+
+class Parser {
+    vector<Token> toks;
+    int pos;
+    vector<string> errs;
+
+    // Utilidades 
+
+    Token act()const{return pos<(int)toks.size()?toks[pos]:Token{"FIN","FIN",-1};}
+    void  av(){if(pos<(int)toks.size())pos++;}
+
+    bool ver(const string& tp,const string& lx="")const{
+        Token t=act();
+        return lx.empty()?t.tipo==tp:(t.tipo==tp&&t.lexema==lx);
+    }
+
+
+    Nodo con(const string& tp,const string& lx=""){
+        Token t=act();
+        bool ok=lx.empty()?t.tipo==tp:(t.tipo==tp&&t.lexema==lx);
+        if(ok){av();return mkN("Token_"+tp,t.lexema);}
+        string esp=lx.empty()?tp:("'"+lx+"'");
+        string enc=t.tipo=="FIN"?"fin de archivo":("'"+t.lexema+"'");
+        errs.push_back("Error sintactico [linea "+to_string(t.linea)+"]: Se esperaba "+esp+" pero se encontro "+enc+".");
+        return mkN("Error",t.lexema);
+    }
+
+    using Par=pair<Nodo,Nodo>;
+
+    // ────────────────────────────────────────────────────────
+    //  FACTOR
+    //  Unidad mínima de expresión. Puede ser un literal, un
+    //  identificador, una llamada a función, una subexpresión
+    //  entre paréntesis o una negación unaria.
+    // ────────────────────────────────────────────────────────
+    Par factor(){
+        Token t=act();
+
+        // Literales numéricos y de texto
+        if(t.tipo=="LITERAL_INT"||t.tipo=="LITERAL_FLOAT"||
+           t.tipo=="LITERAL_STRING"||t.tipo=="LITERAL_CHAR"){
+            av();
+            string ta=t.tipo=="LITERAL_INT"?"NumeroEntero":
+                      t.tipo=="LITERAL_FLOAT"?"NumeroFlotante":
+                      t.tipo=="LITERAL_STRING"?"LiteralString":"LiteralChar";
+            return{mkN("Factor_"+t.tipo,t.lexema),mkN(ta,t.lexema)};
+        }
+
+        // Booleanos: true / false
+        if(t.tipo=="KEYWORD"&&(t.lexema=="true"||t.lexema=="false")){
+            av();return{mkN("Factor_Bool",t.lexema),mkN("LiteralBool",t.lexema)};
+        }
+
+        // Identificador o llamada a función
+        if(t.tipo=="IDENTIFIER"){
+            av();
+            if(ver("DELIMITER","(")) return llamada(t.lexema,t.linea);
+            return{mkN("Factor_ID",t.lexema),mkN("Identificador",t.lexema)};
+        }
+
+        // Subexpresión agrupada: ( expresion )
+        // CST conserva los paréntesis como nodos; AST los agrupa en "Grupo"
+        if(t.tipo=="DELIMITER"&&t.lexema=="("){
+            auto cst=mkN("Factor_Grupo");
+            cst->agregar(con("DELIMITER","("));    // CST: nodo "("
+            auto[eC,eA]=expr();
+            cst->agregar(eC);
+            cst->agregar(con("DELIMITER",")"));    // CST: nodo ")"
+            auto ast=mkN("Grupo"); ast->agregar(eA);
+            return{cst,ast};
+        }
+
+        // Negación unaria: -expr  o  !expr
+        if(t.tipo=="OPERATOR"&&(t.lexema=="-"||t.lexema=="!")){
+            av();
+            auto cst=mkN("Factor_Unario",t.lexema);
+            cst->agregar(mkN("Token_OPERATOR",t.lexema));
+            auto[fC,fA]=factor();
+            cst->agregar(fC);
+            auto ast=mkN(t.lexema=="-"?"NegacionUnaria":"NegacionLogica",t.lexema);
+            ast->agregar(fA);
+            return{cst,ast};
+        }
+
+        errs.push_back("Error sintactico [linea "+to_string(t.linea)+"]: Factor invalido '"+t.lexema+"'.");
+        av();return{mkN("Error_Factor",t.lexema),mkN("Error",t.lexema)};
+    }
+
+    // ────────────────────────────────────────────────────────
+    //  LLAMADA A FUNCIÓN
+    // ────────────────────────────────────────────────────────
+    Par llamada(const string& nom,int lin){
+        auto cst=mkN("LlamadaFuncion");
+        cst->agregar(mkN("Token_IDENTIFIER",nom));
+        cst->agregar(con("DELIMITER","("));
+        auto ast=mkN("LlamadaFuncion",nom);
+
+        if(!ver("DELIMITER",")")){
+            auto[aC,aA]=expr(); cst->agregar(aC); ast->agregar(aA);
+            while(ver("DELIMITER",",")){
+                cst->agregar(con("DELIMITER",",")); // CST: ","
+                auto[bC,bA]=expr(); cst->agregar(bC); ast->agregar(bA);
+            }
+        }
+        cst->agregar(con("DELIMITER",")"));
+        return{cst,ast};
+    }
+
+    // ────────────────────────────────────────────────────────
+    //  TÉRMINO: *, /, %
+    //  Mayor precedencia que suma y resta.
+    // ────────────────────────────────────────────────────────
+    Par termino(){
+        auto[izC,izA]=factor();
+        while(ver("OPERATOR","*")||ver("OPERATOR","/")||ver("OPERATOR","%")){
+            Token op=act();av();
+            auto[dC,dA]=factor();
+            auto cst=mkN("Termino_"+op.lexema,op.lexema);
+            cst->agregar(izC); cst->agregar(mkN("Token_OPERATOR",op.lexema)); cst->agregar(dC);
+            string ta=op.lexema=="*"?"Multiplicacion":op.lexema=="/"?"Division":"Modulo";
+            auto ast=mkN(ta,op.lexema); ast->agregar(izA); ast->agregar(dA);
+            izC=cst; izA=ast;
+        }
+        return{izC,izA};
+    }
+
+    // ────────────────────────────────────────────────────────
+    //  EXPRESIÓN: +, -
+    //  Menor precedencia que * y /.
+    // ────────────────────────────────────────────────────────
+    Par expr(){
+        auto[izC,izA]=termino();
+        while(ver("OPERATOR","+")||ver("OPERATOR","-")){
+            Token op=act();av();
+            auto[dC,dA]=termino();
+            auto cst=mkN("Expresion_"+op.lexema,op.lexema);
+            cst->agregar(izC); cst->agregar(mkN("Token_OPERATOR",op.lexema)); cst->agregar(dC);
+            auto ast=mkN(op.lexema=="+"?"Suma":"Resta",op.lexema);
+            ast->agregar(izA); ast->agregar(dA);
+            izC=cst; izA=ast;
+        }
+        return{izC,izA};
+    }
+
+    // ────────────────────────────────────────────────────────
+    //  CONDICIÓN: comparación entre dos expresiones
+    //  Si no hay operador relacional se trata como expr. booleana.
+    // ────────────────────────────────────────────────────────
+    Par cond(){
+        auto[izC,izA]=expr();
+        Token t=act();
+        if(t.lexema=="=="||t.lexema=="!="||t.lexema=="<"||
+           t.lexema==">" ||t.lexema=="<="||t.lexema==">="){
+            av();
+            auto[dC,dA]=expr();
+            auto cst=mkN("Condicion",t.lexema);
+            cst->agregar(izC); cst->agregar(mkN("Token_OPERATOR",t.lexema)); cst->agregar(dC);
+            auto ast=mkN("Condicion",t.lexema); ast->agregar(izA); ast->agregar(dA);
+            return{cst,ast};
+        }
+        return{izC,izA};
+    }
+
+    // ────────────────────────────────────────────────────────
+    //  BLOQUE: { sentencia* }
+    //  El AST solo contiene los nodos de las sentencias.
+    // ────────────────────────────────────────────────────────
+    Par bloque(){
+        auto cst=mkN("Bloque"),ast=mkN("Bloque");
+        cst->agregar(con("DELIMITER","{"));
+        while(!ver("DELIMITER","}")&&act().tipo!="FIN"){
+            auto[sC,sA]=sentencia(); cst->agregar(sC); if(sA)ast->agregar(sA);
+        }
+        cst->agregar(con("DELIMITER","}"));
+        return{cst,ast};
+    }
+
+    // ────────────────────────────────────────────────────────
+    //  DECLARACIÓN DE VARIABLE
+    //  declaracion → tipo IDENTIFIER ("=" expresion)? ";"
+    // ────────────────────────────────────────────────────────
+    Par decl(){
+        Token tp=act();av(); Token nm=act();
+        auto cst=mkN("Declaracion");
+        cst->agregar(mkN("Token_KEYWORD",tp.lexema));
+        cst->agregar(con("IDENTIFIER"));
+        auto ast=mkN("Declaracion",tp.lexema);
+        ast->agregar(mkN("Identificador",nm.lexema));
+        if(ver("OPERATOR","=")){
+            cst->agregar(con("OPERATOR","="));
+            auto[eC,eA]=expr(); cst->agregar(eC);
+            auto ini=mkN("Inicializacion"); ini->agregar(eA); ast->agregar(ini);
+        }
+        cst->agregar(con("DELIMITER",";"));
+        return{cst,ast};
+    }
+
+    // Declaración sin ";" — para la parte init del for
+    Par declSinPunto(){
+        Token tp=act();av(); Token nm=act();
+        auto cst=mkN("Declaracion_Init");
+        cst->agregar(mkN("Token_KEYWORD",tp.lexema));
+        cst->agregar(con("IDENTIFIER"));
+        auto ast=mkN("Declaracion",tp.lexema);
+        ast->agregar(mkN("Identificador",nm.lexema));
+        if(ver("OPERATOR","=")){
+            cst->agregar(con("OPERATOR","="));
+            auto[eC,eA]=expr(); cst->agregar(eC);
+            auto ini=mkN("Inicializacion"); ini->agregar(eA); ast->agregar(ini);
+        }
+        return{cst,ast};
+    }
+
+    // ────────────────────────────────────────────────────────
+    //  ASIGNACIÓN
+    //  asignacion → IDENTIFIER op_asig expresion ";"
+    //  op_asig    → "=" | "+=" | "-=" | "*=" | "/="
+    // ────────────────────────────────────────────────────────
+    Par asig(const string& nom){
+        Token op=act();av();
+        auto cst=mkN("Asignacion",op.lexema);
+        cst->agregar(mkN("Token_IDENTIFIER",nom));
+        cst->agregar(mkN("Token_OPERATOR",op.lexema));
+        auto[eC,eA]=expr(); cst->agregar(eC);
+        cst->agregar(con("DELIMITER",";"));
+        string ta=op.lexema=="="?"Asignacion":"AsignacionCompuesta";
+        auto ast=mkN(ta,op.lexema);
+        ast->agregar(mkN("Identificador",nom)); ast->agregar(eA);
+        return{cst,ast};
+    }
+
+    // Asignación sin ";" — para el paso del for
+    Par asigSinPunto(const string& nom){
+        Token op=act();av();
+        auto cst=mkN("Asignacion_"+op.lexema);
+        cst->agregar(mkN("Token_IDENTIFIER",nom));
+        cst->agregar(mkN("Token_OPERATOR",op.lexema));
+        auto[eC,eA]=expr(); cst->agregar(eC);
+        string ta=op.lexema=="="?"Asignacion":"AsignacionCompuesta";
+        auto ast=mkN(ta,op.lexema);
+        ast->agregar(mkN("Identificador",nom)); ast->agregar(eA);
+        return{cst,ast};
+    }
+
+    // ────────────────────────────────────────────────────────
+    //  SENTENCIA IF / IF-ELSE
+    //  si → "if" "(" condicion ")" bloque ("else" bloque)?
+    //  CST: incluye los tokens "if", "(", ")", "else"
+    //  AST: solo la condición y los bloques (sin tokens auxiliares)
+    // ────────────────────────────────────────────────────────
+    Par sentIf(){
+        auto cst=mkN("SentenciaIf"),ast=mkN("SentenciaIf");
+        cst->agregar(con("KEYWORD","if"));
+        cst->agregar(con("DELIMITER","("));
+        auto[cC,cA]=cond();
+        cst->agregar(cC); cst->agregar(con("DELIMITER",")"));
+        ast->agregar(cA);
+        auto[bC,bA]=bloque(); cst->agregar(bC); ast->agregar(bA);
+        if(ver("KEYWORD","else")){
+            cst->agregar(con("KEYWORD","else"));
+            auto el=mkN("Else");
+            auto[eC,eA]=bloque(); cst->agregar(eC); el->agregar(eA); ast->agregar(el);
+        }
+        return{cst,ast};
+    }
+
+    // ────────────────────────────────────────────────────────
+    //  SENTENCIA WHILE
+    //  mientras → "while" "(" condicion ")" bloque
+    // ────────────────────────────────────────────────────────
+    Par sentWhile(){
+        auto cst=mkN("SentenciaWhile"),ast=mkN("SentenciaWhile");
+        cst->agregar(con("KEYWORD","while"));
+        cst->agregar(con("DELIMITER","("));
+        auto[cC,cA]=cond();
+        cst->agregar(cC); cst->agregar(con("DELIMITER",")"));
+        ast->agregar(cA);
+        auto[bC,bA]=bloque(); cst->agregar(bC); ast->agregar(bA);
+        return{cst,ast};
+    }
+
+    // ────────────────────────────────────────────────────────
+    //  SENTENCIA FOR
+    //  para → "for" "(" init ";" condicion ";" paso ")" bloque
+    //
+    //  Las tres partes son opcionales (se permite for(;;){...}).
+    // ────────────────────────────────────────────────────────
+    Par sentFor(){
+        auto cst=mkN("SentenciaFor"),ast=mkN("SentenciaFor");
+        cst->agregar(con("KEYWORD","for"));
+        cst->agregar(con("DELIMITER","("));
+
+        // ── Init ─────────────────────────────────────────────
+        auto iC=mkN("For_Init"),iA=mkN("For_Init");
+        if(!ver("DELIMITER",";")){
+            if(act().tipo=="KEYWORD"&&esTipoDato(act().lexema)){
+                // Declaración: int i = 0
+                auto[dC,dA]=declSinPunto(); iC->agregar(dC); iA->agregar(dA);
+            } else if(act().tipo=="IDENTIFIER"){
+                string nm=act().lexema;av();
+                if(ver("OPERATOR","=")||ver("OPERATOR","+=")||ver("OPERATOR","-=")||
+                   ver("OPERATOR","*=")||ver("OPERATOR","/=")){
+                    auto[aC,aA]=asigSinPunto(nm); iC->agregar(aC); iA->agregar(aA);
+                }
+            }
+        }
+        cst->agregar(iC); cst->agregar(con("DELIMITER",";")); ast->agregar(iA);
+
+        // ── Condición ─────────────────────────────────────────
+        auto cC2=mkN("For_Condicion"),cA2=mkN("For_Condicion");
+        if(!ver("DELIMITER",";")){
+            auto[xC,xA]=cond(); cC2->agregar(xC); cA2->agregar(xA);
+        }
+        cst->agregar(cC2); cst->agregar(con("DELIMITER",";")); ast->agregar(cA2);
+
+        // ── Paso ──────────────────────────────────────────────
+        auto pC=mkN("For_Paso"),pA=mkN("For_Paso");
+        if(!ver("DELIMITER",")")){
+            if(act().tipo=="IDENTIFIER"){
+                string nm=act().lexema;av();
+                if(ver("OPERATOR","++")||ver("OPERATOR","--")){
+                    // Incr/Decr: i++
+                    string op=act().lexema;av();
+                    auto cn=mkN("IncrDecr_"+op,op);
+                    cn->agregar(mkN("Token_IDENTIFIER",nm));
+                    cn->agregar(mkN("Token_OPERATOR",op));
+                    pC->agregar(cn);
+                    auto an=mkN("IncrementoDecremento",op); an->agregar(mkN("Identificador",nm));
+                    pA->agregar(an);
+                } else if(ver("OPERATOR","=")||ver("OPERATOR","+=")||ver("OPERATOR","-=")||
+                          ver("OPERATOR","*=")||ver("OPERATOR","/=")){
+                    // Asignación compuesta: i += 2
+                    auto[aC,aA]=asigSinPunto(nm); pC->agregar(aC); pA->agregar(aA);
+                }
+            }
+        }
+        cst->agregar(pC); cst->agregar(con("DELIMITER",")")); ast->agregar(pA);
+
+        // ── Cuerpo ───────────────────────────────────────────
+        auto[bC,bA]=bloque(); cst->agregar(bC); ast->agregar(bA);
+        return{cst,ast};
+    }
+
+    // ────────────────────────────────────────────────────────
+    //  SENTENCIA RETURN
+    //  retorno → "return" expresion? ";"
+    //  La expresión es opcional (para funciones void).
+    // ────────────────────────────────────────────────────────
+    Par sentReturn(){
+        auto cst=mkN("SentenciaReturn"),ast=mkN("SentenciaReturn");
+        cst->agregar(con("KEYWORD","return"));
+        if(!ver("DELIMITER",";")){
+            auto[eC,eA]=expr(); cst->agregar(eC); ast->agregar(eA);
+        }
+        cst->agregar(con("DELIMITER",";"));
+        return{cst,ast};
+    }
+
+    // ────────────────────────────────────────────────────────
+    //  SENTENCIA (dispatcher)
+    //  Determina qué tipo de sentencia es y delega al método
+    //  correspondiente según el token actual.
+    // ────────────────────────────────────────────────────────
+    Par sentencia(){
+        Token t=act();
+
+        if(t.tipo=="KEYWORD"&&esTipoDato(t.lexema)) return decl();
+        if(t.tipo=="KEYWORD"&&t.lexema=="if")        return sentIf();
+        if(t.tipo=="KEYWORD"&&t.lexema=="while")     return sentWhile();
+        if(t.tipo=="KEYWORD"&&t.lexema=="for")       return sentFor();
+        if(t.tipo=="KEYWORD"&&t.lexema=="return")    return sentReturn();
+
+        // break y continue: una palabra + punto y coma
+        if(t.tipo=="KEYWORD"&&(t.lexema=="break"||t.lexema=="continue")){
+            av();
+            auto cst=mkN("Token_KEYWORD",t.lexema); cst->agregar(con("DELIMITER",";"));
+            return{cst,mkN(t.lexema=="break"?"Break":"Continue")};
+        }
+
+        // Bloque anónimo
+        if(t.tipo=="DELIMITER"&&t.lexema=="{") return bloque();
+
+        // Identificador: asignación, incr/decr, llamada o stream
+        if(t.tipo=="IDENTIFIER"){
+            string nm=t.lexema;av();
+
+            // Llamada a función como sentencia: f(args);
+            if(ver("DELIMITER","(")){
+                auto[fC,fA]=llamada(nm,t.linea);
+                auto cst=mkN("SentenciaLlamada"); cst->agregar(fC); cst->agregar(con("DELIMITER",";"));
+                return{cst,fA};
+            }
+
+            // Operadores de stream: cout << x << endl;
+            if(ver("OPERATOR","<<")||ver("OPERATOR",">>")){
+                auto cst=mkN("SentenciaStream",nm),ast=mkN("SentenciaStream",nm);
+                cst->agregar(mkN("Token_IDENTIFIER",nm));
+                while(ver("OPERATOR","<<")||ver("OPERATOR",">>")){
+                    string op=act().lexema;av();
+                    cst->agregar(mkN("Token_OPERATOR",op));
+                    auto[eC,eA]=expr(); cst->agregar(eC);
+                    auto op2=mkN("OperandoStream",op); op2->agregar(eA); ast->agregar(op2);
+                }
+                cst->agregar(con("DELIMITER",";"));
+                return{cst,ast};
+            }
+
+            // Asignación o asignación compuesta
+            if(ver("OPERATOR","=")||ver("OPERATOR","+=")||ver("OPERATOR","-=")||
+               ver("OPERATOR","*=")||ver("OPERATOR","/="))
+                return asig(nm);
+
+            // Incremento/Decremento como sentencia: x++; x--;
+            if(ver("OPERATOR","++")||ver("OPERATOR","--")){
+                string op=act().lexema;av();
+                auto cst=mkN("IncrDecr",op);
+                cst->agregar(mkN("Token_IDENTIFIER",nm));
+                cst->agregar(mkN("Token_OPERATOR",op));
+                cst->agregar(con("DELIMITER",";"));
+                auto ast=mkN("IncrementoDecremento",op); ast->agregar(mkN("Identificador",nm));
+                return{cst,ast};
+            }
+
+            errs.push_back("Error sintactico [linea "+to_string(t.linea)+"]: Sentencia invalida con '"+nm+"'.");
+            return{mkN("Error",nm),mkN("Error",nm)};
+        }
+
+        // Directivas de preprocesador: #include <...>
+        if(t.tipo=="KEYWORD"&&t.lexema=="#include"){
+            int ln=t.linea;
+            while(act().tipo!="FIN"&&act().linea==ln)av();
+            return{mkN("Directiva_Include"),nullptr};
+        }
+
+        // Otras keywords de ámbito global (using namespace std)
+        if(t.tipo=="KEYWORD"){
+            while(act().tipo!="FIN"&&act().lexema!=";")av();
+            if(ver("DELIMITER",";"))av();
+            return{mkN("Directiva",t.lexema),nullptr};
+        }
+
+        errs.push_back("Error sintactico [linea "+to_string(t.linea)+"]: Token inesperado '"+t.lexema+"'.");
+        av();return{mkN("Error",t.lexema),mkN("Error",t.lexema)};
+    }
+
+    // ────────────────────────────────────────────────────────
+    //  PARÁMETROS DE FUNCIÓN
+    //  params → ( tipo IDENTIFIER ("," tipo IDENTIFIER)* )?
+    // ────────────────────────────────────────────────────────
+    Par params(){
+        auto cst=mkN("Parametros"),ast=mkN("Parametros");
+        if(!ver("DELIMITER",")")){
+            auto agrParam=[&](){
+                Token tp=act();av(); Token nm=act();
+                auto pC=mkN("Parametro");
+                pC->agregar(mkN("Token_KEYWORD",tp.lexema));
+                pC->agregar(con("IDENTIFIER"));
+                cst->agregar(pC);
+                auto pA=mkN("Parametro",tp.lexema);
+                pA->agregar(mkN("Identificador",nm.lexema));
+                ast->agregar(pA);
+            };
+            agrParam();
+            while(ver("DELIMITER",",")){
+                cst->agregar(con("DELIMITER",",")); agrParam();
+            }
+        }
+        return{cst,ast};
+    }
+
+    // ────────────────────────────────────────────────────────
+    //  DEFINICIÓN DE FUNCIÓN COMPLETA
+    //  definicion → tipo IDENTIFIER "(" params ")" bloque
+    //  CST incluye: tipo, nombre, "(", params, ")", bloque-con-llaves
+    //  AST incluye: TipoRetorno, Parametros, Bloque (sin delimitadores)
+    // ────────────────────────────────────────────────────────
+    Par defFuncion(){
+        Token tp=act();av(); Token nm=act();
+        auto cst=mkN("DefinicionFuncion");
+        cst->agregar(mkN("Token_KEYWORD",tp.lexema));
+        cst->agregar(con("IDENTIFIER"));
+        cst->agregar(con("DELIMITER","("));
+        auto ast=mkN("DefinicionFuncion",nm.lexema);
+        ast->agregar(mkN("TipoRetorno",tp.lexema));
+        auto[pC,pA]=params();
+        cst->agregar(pC); cst->agregar(con("DELIMITER",")")); ast->agregar(pA);
+        auto[bC,bA]=bloque(); cst->agregar(bC); ast->agregar(bA);
+        return{cst,ast};
+    }
+
+    /*
+     * esDefFuncion:
+     *   Mira 3 tokens hacia adelante para distinguir
+     *   una definición de función (tipo nombre "(")
+     *   de una declaración de variable (tipo nombre ";" o "=").
+     */
+    bool esDefFuncion(){
+        if(act().tipo!="KEYWORD"||!esTipoDato(act().lexema))return false;
+        if(pos+1>=(int)toks.size()||toks[pos+1].tipo!="IDENTIFIER")return false;
+        if(pos+2>=(int)toks.size())return false;
+        return toks[pos+2].lexema=="(";
+    }
+
+public:
+    Parser(const vector<Token>& t):toks(t),pos(0){}
+
+    /*
+     * parsear:
+     *   Punto de entrada principal.
+     *   Aplica la regla: programa → (definicion_func | sentencia)*
+     *   Retorna {raizCST, raizAST}.
+     */
+    Par parsear(){
+        auto rC=mkN("Programa"),rA=mkN("Programa");
+        while(act().tipo!="FIN"){
+            if(esDefFuncion()){
+                auto[fC,fA]=defFuncion(); rC->agregar(fC); rA->agregar(fA);
+            } else {
+                auto[sC,sA]=sentencia(); rC->agregar(sC); if(sA)rA->agregar(sA);
+            }
+        }
+        return{rC,rA};
+    }
+
+    bool hayErrores()const{return!errs.empty();}
+    int  cantErrores()const{return errs.size();}
+    void imprimirErrores()const{for(auto&e:errs)cout<<e<<"\n";}
+};
+
+
+// ============================================================
+//  SECCIÓN 5: PROGRAMA PRINCIPAL
+// ============================================================
+
+int main(){
+    cout<<"===========================================\n";
+    cout<<"   COMPILADOR DIDÁCTICO — LEXER + PARSER  \n";
+    cout<<"===========================================\n";
+
+    // ── FASE 1: Análisis Léxico ──────────────────────────────
+    cout<<"\n╔══════════════════════════════════════╗\n";
+    cout<<  "║  FASE 1: ANÁLISIS LÉXICO (LEXER)     ║\n";
+    cout<<  "╚══════════════════════════════════════╝\n";
+
+    vector<Token> tokens;
+    vector<string> tabla;
+    bool lexOk=analizarLexico("codigo.txt",tokens,tabla);
+
+    if(!lexOk){cout<<"\nErrores léxicos. Corrija antes de continuar.\n";return 1;}
+
+    cout<<"\n▶ Tabla Léxica:\n"<<string(46,'-')<<"\n";
+    for(auto&t:tokens) printf("  %-22s → [%s]\n",t.lexema.c_str(),t.tipo.c_str());
+
+    cout<<"\n▶ Tabla de Símbolos:\n"<<string(46,'-')<<"\n";
+    for(auto&s:tabla) cout<<"  "<<s<<"\n";
+
+    // ── FASE 2: Análisis Sintáctico ──────────────────────────
+    cout<<"\n╔══════════════════════════════════════╗\n";
+    cout<<  "║  FASE 2: ANÁLISIS SINTÁCTICO (PARSER)║\n";
+    cout<<  "╚══════════════════════════════════════╝\n";
+
+    Parser parser(tokens);
+    auto[cst,ast]=parser.parsear();
+
+    if(parser.hayErrores()){
+        cout<<"\n▶ Errores Sintácticos:\n"; parser.imprimirErrores();
+    } else {
+        cout<<"\n✓ Análisis sintáctico exitoso. Sin errores.\n";
+    }
+
+    // ── CST ──────────────────────────────────────────────────
+    cout<<"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
+    cout<<"▶ CST — Árbol de Análisis Concreto\n";
+    cout<<"  Refleja EXACTAMENTE la gramática: contiene todos los\n";
+    cout<<"  tokens del código fuente como nodos hoja del árbol.\n";
+    cout<<"  Los nodos Token_X representan terminales de la gramática.\n";
+    cout<<"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
+    if(cst&&!cst->hijos.empty()){
+        cout<<"[Programa]\n";
+        for(int i=0;i<(int)cst->hijos.size();i++)
+            imprimirArbol(cst->hijos[i],"",i==(int)cst->hijos.size()-1);
+    }
+
+    // ── AST ──────────────────────────────────────────────────
+    cout<<"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
+    cout<<"▶ AST — Árbol Sintáctico Abstracto\n";
+    cout<<"  Versión simplificada del CST: elimina los nodos Token_X\n";
+    cout<<"  (paréntesis, ';', '{', '}', etc.) y conserva solo la\n";
+    cout<<"  estructura semántica relevante para el compilador.\n";
+    cout<<"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
+    if(ast&&!ast->hijos.empty()){
+        cout<<"[Programa]\n";
+        for(int i=0;i<(int)ast->hijos.size();i++)
+            imprimirArbol(ast->hijos[i],"",i==(int)ast->hijos.size()-1);
+    }
+
+    // ── Resumen ──────────────────────────────────────────────
+    cout<<"\n===========================================\n";
+    cout<<"   RESUMEN DE COMPILACIÓN\n";
+    cout<<"===========================================\n";
+    cout<<"  Tokens generados    : "<<tokens.size()<<"\n";
+    cout<<"  Símbolos en tabla   : "<<tabla.size()<<"\n";
+    cout<<"  Nodos raíz CST      : "<<(cst?cst->hijos.size():0)<<"\n";
+    cout<<"  Nodos raíz AST      : "<<(ast?ast->hijos.size():0)<<"\n";
+    cout<<"  Errores sintácticos : "<<parser.cantErrores()<<"\n";
+    cout<<"  Estado              : "<<(parser.hayErrores()?"CON ERRORES":"EXITOSO")<<"\n";
+
+    return 0;
+}

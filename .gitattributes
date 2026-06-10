@@ -1,0 +1,11 @@
+# Normaliza saltos de línea
+* text=auto eol=lf
+
+# Scripts de Windows con CRLF
+*.bat text eol=crlf
+
+# Binarios (no tocar)
+*.pdf binary
+*.docx binary
+*.png binary
+*.exe binary

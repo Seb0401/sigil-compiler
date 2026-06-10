@@ -1,0 +1,29 @@
+# ── Artefactos de compilación ───────────────────────────────
+/bin/
+/build/
+/out/
+*.obj
+*.exe
+*.ilk
+*.pdb
+*.o
+*.a
+
+# ── Python ──────────────────────────────────────────────────
+server/__pycache__/
+__pycache__/
+*.pyc
+
+# ── Temporales / logs ───────────────────────────────────────
+*.log
+*.tmp
+e1.json
+srv*.log
+
+# ── IDE / SO ────────────────────────────────────────────────
+.vs/
+.vscode/
+CMakeSettings.json
+Thumbs.db
+Desktop.ini
+.DS_Store
