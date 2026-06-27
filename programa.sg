@@ -1,0 +1,28 @@
+// ==========================================================
+//  programa.sg  —  Edita este archivo y ejecútalo con:
+//        sigil.bat            (usa este archivo por defecto)
+//        sigil.bat otro.sg    (ejecuta otro archivo)
+//  Verás un resumen de todas las fases en la consola.
+// ==========================================================
+
+int base = 3;
+int altura = 4;
+
+// hipotenusa con potencia (**) y raiz (sqrt)
+float hip = sqrt(base ** 2 + altura ** 2);
+println("hipotenusa(3,4) =", hip);
+
+// for-in con rango (..) y divisible (%%)
+println("pares del 1 al 10:");
+for i in 1..10 {
+    if (i %% 2) {
+        print(i, "");
+    }
+}
+println("");
+
+// swap (><) y pipe (|>)
+int x = 1;
+int y = 9;
+x >< y;
+println("tras swap: x =", x, " y =", y);
