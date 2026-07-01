@@ -8,6 +8,20 @@ sintaxis tipo C++ y operadores nuevos. Incluye las cinco fases clásicas y una
 Léxico  →  Sintáctico (CST + AST)  →  Semántico  →  Código intermedio (TAC)  →  Ejecución
 ```
 
+## Interfaz web
+
+Editor con resaltado de sintaxis, y las fases del compilador en pestañas:
+
+![Editor con resaltado de sintaxis](docs/img/01_editor.png)
+
+| AST (árbol organigrama) | Código intermedio (generado vs optimizado) |
+|:---:|:---:|
+| ![AST](docs/img/03_ast.png) | ![TAC](docs/img/05_tac.png) |
+
+| Salida de ejecución | CST |
+|:---:|:---:|
+| ![Salida](docs/img/02_salida.png) | ![CST](docs/img/04_cst.png) |
+
 ## Operadores propios de Sigil
 
 | Operador | Significado            | Ejemplo                       | Resultado |

@@ -327,3 +327,16 @@ for i in 1..5 {
 println("suma 1..5 =", suma);
 `);
 cargarEjemplos();
+
+// ── Modo demo (para enlaces compartibles y capturas) ────────
+//   ?run=1  -> compila automáticamente al cargar
+//   #ast, #cst, #tac, ...  -> abre esa pestaña
+(function demo() {
+  const abrirTab = () => {
+    const h = location.hash.replace("#", "");
+    if (h) { const b = $(`.tab[data-tab="${h}"]`); if (b) b.click(); }
+  };
+  if (new URLSearchParams(location.search).get("run") === "1") {
+    Promise.resolve(compilar()).then(abrirTab);
+  } else { abrirTab(); }
+})();
