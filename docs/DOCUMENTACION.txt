@@ -1,0 +1,613 @@
+================================================================================
+                    DOCUMENTACION - PROYECTO FINAL DE COMPILADORES
+                       COMPILADOR DEL LENGUAJE "SIGIL"
+================================================================================
+
+--------------------------------------------------------------------------------
+0. PORTADA
+--------------------------------------------------------------------------------
+
+   Universidad      : [completar]
+   Curso            : Compiladores
+   Ciclo / Anio     : 2026
+   Proyecto Final   : Compilador del lenguaje de programacion "Sigil"
+   Docente          : [completar]
+   Fecha            : [completar]
+
+   Integrantes:
+     - Barreda Bejarano, Sebastian Raul
+     - Collado Cardenas, Marco Antonio
+     - Larota Ochoa, Samith Yowao
+     - Larota Ochoa, Linkol Yowao
+
+   Repositorio del codigo fuente (Anexo):
+     https://github.com/Seb0401/sigil-compiler
+
+
+================================================================================
+1. INTRODUCCION
+================================================================================
+
+El presente proyecto consiste en el diseno e implementacion de un compilador
+didactico completo para un lenguaje de programacion propio llamado "Sigil"
+(archivos con extension .sg). A diferencia de la primera entrega, que abarcaba
+unicamente las fases de analisis lexico y sintactico dentro de un unico archivo,
+esta version evoluciona hacia un pipeline completo de compilacion, organizado
+como un proyecto modular en C++17, e incorpora ademas una interfaz web para
+visualizar el resultado de cada fase.
+
+El objetivo del compilador es tomar codigo escrito en el lenguaje Sigil,
+analizarlo en sus distintas fases (lexica, sintactica y semantica), generar una
+representacion intermedia optimizada y, finalmente, EJECUTARLO mediante un
+interprete, produciendo la salida real del programa. De esta manera el proyecto
+no solo verifica que un programa este bien escrito, sino que tambien lo corre.
+
+Sigil mantiene una sintaxis de estilo C/C++ (declaraciones con tipo, if/else,
+while, for, funciones) para que resulte familiar, pero anade un conjunto de
+operadores propios y expresivos que le dan identidad: potencia (**), rango (..),
+tuberia o pipe (|>), divisibilidad (%%), intercambio o swap (><) y comparacion
+de tres vias (<=>), ademas de operadores logicos, arreglos y funciones de cadena.
+
+El sistema se compone de cinco fases encadenadas:
+
+   Analisis Lexico  ->  Analisis Sintactico (CST + AST)  ->  Analisis Semantico
+   ->  Generacion de Codigo Intermedio (TAC) + Optimizacion  ->  Ejecucion
+
+Cada fase acumula sus errores sin abortar el proceso, de modo que el usuario
+recibe un diagnostico lo mas completo posible en una sola pasada. Todo el
+resultado puede consultarse por consola o a traves de una interfaz web que
+muestra, en pestanas, los tokens, la tabla de simbolos, los arboles sintacticos,
+el codigo intermedio (comparando la version generada con la optimizada), la
+salida del programa y la lista de errores por fase.
+
+
+================================================================================
+2. DESCRIPCION DEL LENGUAJE IMPLEMENTADO
+================================================================================
+
+2.1 PALABRAS RESERVADAS
+--------------------------------------------------------------------------------
+   Tipos de dato     : int, float, bool, char, string, void
+   Control de flujo  : if, else, while, for, in, break, continue, return
+   Declaraciones     : func
+   Valores logicos   : true, false
+   Entrada/salida     : print, println
+   Compatibilidad    : #include, using, namespace, std  (para codigo tipo C++)
+
+2.2 TIPOS DE DATOS
+--------------------------------------------------------------------------------
+   int      Numeros enteros            (ej. 0, 42, -7)
+   float    Numeros de punto flotante  (ej. 3.14, 0.5)
+   bool     Valores logicos            (true / false)
+   char     Un caracter                ('a', '\n')
+   string   Cadenas de texto           ("hola")
+   void     Ausencia de valor (retorno de funciones)
+   T[]      Arreglo de elementos de tipo T (ej. int[], string[])
+
+2.3 OPERADORES
+--------------------------------------------------------------------------------
+   Aritmeticos        :  +   -   *   /   %
+   Potencia           :  **        2 ** 8   -> 256
+   Divisibilidad      :  %%        10 %% 5  -> true (bool)
+   Relacionales       :  ==  !=  <  >  <=  >=
+   Comparacion 3 vias :  <=>       3 <=> 7  -> -1   (devuelve -1, 0 o 1)
+   Logicos            :  &&  ||  !
+   Asignacion         :  =   +=  -=  *=  /=
+   Incremento/decr.   :  ++  --
+   Rango              :  ..        for i in 1..10 { }
+   Pipe (encadenar)   :  |>        5 |> doble |> incrementar == incrementar(doble(5))
+   Swap (intercambio) :  ><        a >< b;   intercambia los valores de a y b
+
+2.4 ESTRUCTURAS SOPORTADAS
+--------------------------------------------------------------------------------
+   - Declaracion de variables con o sin inicializacion:  int x;   int y = 5;
+   - Asignacion simple y compuesta:  x = 10;   x += 5;
+   - Incremento / decremento:  x++;  x--;
+   - Expresiones aritmeticas con precedencia y asociatividad.
+   - Condicional if / else (y else-if encadenado).
+   - Bucles while, for clasico y for-in (sobre rangos y sobre arreglos).
+   - Definicion de funciones con parametros y valor de retorno; recursion.
+   - Llamadas a funciones y el operador pipe.
+   - Arreglos: literales [1,2,3], indexacion arr[i], asignacion arr[i]=x,
+     recorrido con for-in y longitud con len(arr).
+   - Funciones incorporadas (builtins):
+        Matematicas : sqrt, abs, pow, max, min, toInt, toFloat, toString
+        Cadenas     : upper, lower, substr, charAt, indexOf, len
+
+2.5 EJEMPLO DEL LENGUAJE
+--------------------------------------------------------------------------------
+   // Numeros primos del 1 al 20 usando el operador divisible (%%)
+   int esPrimo(int n) {
+       if (n < 2) { return 0; }
+       int d = 2;
+       while (d * d <= n) {
+           if (n %% d) { return 0; }
+           d++;
+       }
+       return 1;
+   }
+
+   void main() {
+       for i in 1..20 {
+           if (esPrimo(i)) { print(i, ""); }
+       }
+       println("");
+   }
+
+
+================================================================================
+3. ANALIZADOR LEXICO (LEXER)
+================================================================================
+
+3.1 QUE ES
+--------------------------------------------------------------------------------
+El analizador lexico es la primera fase. Lee el codigo fuente caracter por
+caracter y lo agrupa en unidades minimas con significado llamadas TOKENS. Ademas
+descarta espacios y comentarios, registra la linea y la columna de cada token
+(para reportar errores con precision) y construye la tabla de simbolos lexica
+(lista de identificadores unicos).
+
+3.2 TIPOS DE TOKEN Y EXPRESIONES REGULARES
+--------------------------------------------------------------------------------
+   TIPO             DESCRIPCION                       EXPRESION REGULAR
+   ----             -----------                       -----------------
+   KEYWORD          Palabra reservada                 (lista fija de la seccion 2.1)
+   IDENTIFIER       Nombre de variable/funcion        [A-Za-z_][A-Za-z0-9_]*
+   LITERAL_INT      Entero                            [0-9]+
+   LITERAL_FLOAT    Flotante                          [0-9]+\.[0-9]+
+   LITERAL_STRING   Cadena                            "([^"\\]|\\.)*"
+   LITERAL_CHAR     Caracter                          '([^'\\]|\\.)*'
+   OPERATOR         Operador (1 a 3 caracteres)       **  ..  |>  %%  ><  <=>  &&
+                                                      ||  ==  !=  <=  >=  ++  --
+                                                      +=  -=  *=  /=  +  -  *  /  etc.
+   DELIMITER        Delimitador de estructura         ;  (  )  {  }  [  ]  ,  :  .
+   (comentarios)    Se descartan                      //...   y   /* ... */
+
+Nota: el analizador prueba primero los operadores mas largos (3 caracteres, luego
+2, luego 1). Esto es clave para distinguir, por ejemplo, "<=>" de "<=" y de "<",
+o "1..5" (entero, rango, entero) de un flotante "1.5".
+
+3.3 EJEMPLO DE RECONOCIMIENTO (tabla de tokens real)
+--------------------------------------------------------------------------------
+Para la linea de codigo:
+
+   int suma = a + b;
+
+el lexer produce (extracto de la salida real del compilador):
+
+   int    -> [KEYWORD]     (lin 6, col 1)
+   suma   -> [IDENTIFIER]  (lin 6, col 5)
+   =      -> [OPERATOR]    (lin 6, col 10)
+   a      -> [IDENTIFIER]  (lin 6, col 12)
+   +      -> [OPERATOR]    (lin 6, col 14)
+   b      -> [IDENTIFIER]  (lin 6, col 16)
+   ;      -> [DELIMITER]   (lin 6, col 17)
+
+Y para "potencia = 2 ** 8;" reconoce correctamente el operador propio:
+
+   potencia -> [IDENTIFIER]    2 -> [LITERAL_INT]    ** -> [OPERATOR]    8 -> [LITERAL_INT]
+
+3.4 MANEJO DE ERRORES LEXICOS
+--------------------------------------------------------------------------------
+Se reportan con linea y columna, por ejemplo:
+   - Caracter invalido.
+   - Cadena / caracter no cerrado.
+   - Comentario de bloque no cerrado.
+
+
+================================================================================
+4. ANALIZADOR SINTACTICO (PARSER)
+================================================================================
+
+4.1 TIPO DE PARSER
+--------------------------------------------------------------------------------
+Se implemento un parser DESCENDENTE RECURSIVO (recursive descent), predictivo,
+donde cada regla de la gramatica corresponde a un metodo en C++. Construye de
+forma simultanea dos arboles:
+
+   - CST (Concrete Syntax Tree): conserva TODOS los tokens del codigo fuente,
+     incluidos parentesis, llaves y ';'. Refleja exactamente la gramatica.
+   - AST (Abstract Syntax Tree): version simplificada que conserva solo la
+     estructura semanticamente relevante. Es el arbol que usan las fases
+     posteriores (semantico, TAC e interprete).
+
+4.2 GRAMATICA (principales producciones, en notacion EBNF)
+--------------------------------------------------------------------------------
+   programa    -> (def_func | sentencia)*
+   def_func    -> ("func" | tipo) IDENT "(" params? ")" bloque
+   params      -> tipo IDENT ("," tipo IDENT)*
+   bloque      -> "{" sentencia* "}"
+
+   sentencia   -> declaracion | asignacion | asig_indice | swap | if | while
+                | for | for_in | return | break | continue | print | llamada ";"
+   declaracion -> tipo "[]"? IDENT ("=" expresion)? ";"
+   asignacion  -> IDENT op_asig expresion ";"
+   asig_indice -> IDENT "[" expresion "]" "=" expresion ";"
+   swap        -> IDENT "><" IDENT ";"
+   if          -> "if" "(" expresion ")" bloque ("else" (if | bloque))?
+   while       -> "while" "(" expresion ")" bloque
+   for         -> "for" "(" init? ";" expresion? ";" paso? ")" bloque
+   for_in      -> "for" IDENT "in" expresion (".." expresion)? bloque
+   return      -> "return" expresion? ";"
+   print       -> ("print" | "println") "(" (expresion ("," expresion)*)? ")" ";"
+
+   Precedencia de expresiones (de menor a mayor prioridad):
+     ||  ->  &&  ->  (== != < > <= >= <=>)  ->  + -  ->  * / % %%
+     ->  ** (asociativo por la derecha)  ->  |>  ->  unario (- !)  ->  factor
+   factor      -> INT | FLOAT | STRING | CHAR | "true" | "false"
+                | IDENT | llamada | IDENT "[" expresion "]"   (indexacion)
+                | "[" (expresion ("," expresion)*)? "]"       (literal de arreglo)
+                | "(" expresion ")"
+
+4.3 ARBOL SINTACTICO ABSTRACTO (AST) - EJEMPLO REAL
+--------------------------------------------------------------------------------
+Para la sentencia:  int suma = a + b;   el AST generado es:
+
+   [Declaracion: int <int>]
+       |-- [Identificador: a]        (nombre de la variable declarada = "suma")
+       `-- [Inicializacion]
+           `-- [Suma: + <int>]
+               |-- [Identificador: a <int>]
+               `-- [Identificador: b <int>]
+
+Y para "potencia = 2 ** 8;":
+
+   [Declaracion: int <int>]
+       |-- [Identificador: potencia]
+       `-- [Inicializacion]
+           `-- [Potencia: ** <int>]
+               |-- [NumeroEntero: 2 <int>]
+               `-- [NumeroEntero: 8 <int>]
+
+(Los campos <int>, <float>, <bool> ... son el tipo que anota la fase semantica.)
+
+4.4 MANEJO DE ERRORES SINTACTICOS
+--------------------------------------------------------------------------------
+Cuando un token no coincide con lo esperado, se reporta con la linea, lo que se
+esperaba y lo que se encontro, por ejemplo:
+   Error sintactico [linea 4]: Se esperaba ';' pero se encontro 'int'.
+
+
+================================================================================
+5. ANALIZADOR SEMANTICO
+================================================================================
+
+5.1 TABLA DE SIMBOLOS Y RESOLUCION DE ALCANCE (SCOPE)
+--------------------------------------------------------------------------------
+El analizador semantico recorre el AST manteniendo una PILA DE ALCANCES. Cada
+bloque (funcion, if, while, for) abre un nuevo alcance y lo cierra al salir. Al
+buscar una variable se recorre de adentro hacia afuera (alcance local -> global).
+
+Cada simbolo guarda: nombre, tipo, categoria (variable / parametro), el nivel de
+anidamiento del alcance y la linea de declaracion. Ejemplo real (programa con
+funcion recursiva y bucles anidados):
+
+   n       : int    (parametro, nivel 1)
+   d       : int    (variable,  nivel 1)
+   i       : int    (variable,  nivel 2)
+   h       : float  (variable,  nivel 1)
+   saludo  : string (variable,  nivel 1)
+
+5.2 VERIFICACION DE TIPOS
+--------------------------------------------------------------------------------
+El semantico infiere y verifica el tipo de cada expresion, anotandolo en el AST.
+Reglas principales:
+   - Aritmetica (+,-,*,/,**): operandos numericos; el resultado es float si algun
+     operando es float, en caso contrario int. "+" tambien concatena strings.
+   - % , %% : requieren enteros. %% produce un bool.
+   - Relacionales y <=> : operandos comparables; los relacionales dan bool,
+     <=> da int (-1/0/1).
+   - Logicos (&&, ||, !): requieren operandos bool.
+   - Se permite ensanchamiento int -> float (no al reves).
+
+5.3 VALIDACION DE DECLARACIONES
+--------------------------------------------------------------------------------
+   - No se puede usar una variable no declarada.
+   - No se puede redeclarar una variable en el mismo alcance.
+   - No se puede declarar una variable de tipo void.
+   - Las funciones se validan por aridad (numero de argumentos) y por el tipo de
+     cada argumento; el return debe coincidir con el tipo de retorno.
+   - break / continue solo dentro de un bucle.
+   - En arreglos: el indice debe ser int; el valor asignado debe coincidir con el
+     tipo de elemento.
+
+5.4 DETECCION DE ERRORES SEMANTICOS - EJEMPLO REAL
+--------------------------------------------------------------------------------
+Para un programa preparado con errores tipicos, el compilador reporta (salida
+real, con numero de linea):
+
+   Error semantico [linea 3]:  La variable 'a' ya fue declarada en este alcance.
+   Error semantico [linea 5]:  Variable 'b' no declarada.
+   Error semantico [linea 7]:  No se puede inicializar 'c' (int) con un valor 'string'.
+   Error semantico [linea 9]:  La funcion 'sqrt' espera 1 argumento(s) pero recibio 2.
+   Error semantico [linea 11]: El operador '&&' requiere operandos bool.
+   Error semantico [linea 13]: Funcion 'noExiste' no declarada.
+   Error semantico [linea 15]: 'break' solo puede usarse dentro de un bucle.
+
+Cuando existen errores en fases previas, el interprete no ejecuta el programa.
+
+
+================================================================================
+6. CODIGO INTERMEDIO Y OPTIMIZACION
+================================================================================
+
+6.1 CODIGO DE TRES DIRECCIONES (TAC)
+--------------------------------------------------------------------------------
+A partir del AST se genera codigo intermedio de tres direcciones (Three-Address
+Code), que descompone las expresiones complejas en instrucciones simples usando
+variables temporales (t1, t2, ...) y etiquetas (L1, L2, ...) para el control de
+flujo. Es un paso intermedio, independiente de la maquina, previo a una eventual
+generacion de codigo objeto.
+
+6.2 TECNICAS DE OPTIMIZACION APLICADAS
+--------------------------------------------------------------------------------
+   (1) Plegado de constantes (constant folding): las operaciones entre constantes
+       se resuelven en tiempo de compilacion. Ej.:  2 ** 8  ->  256.
+   (2) Eliminacion de temporales redundantes (una forma de copy propagation): si
+       un temporal se define y se usa una sola vez para copiarse a una variable,
+       se sustituye directamente.  Ej.:  t1 = a + b; suma = t1  ->  suma = a + b.
+   (3) Eliminacion de codigo muerto: se descartan asignaciones a temporales que
+       nunca se usan.
+
+6.3 EJEMPLO ANTES / DESPUES (salida real del ejemplo 01_basico.sg)
+--------------------------------------------------------------------------------
+   TAC GENERADO (21 instrucciones)          TAC OPTIMIZADO (19 instrucciones)
+   ------------------------------           --------------------------------
+   a = 10                                   a = 10
+   b = 5                                    b = 5
+   resultado = 3.14                         resultado = 3.14
+   t1 = a + b                               suma = a + b        <- temporal eliminado
+   suma = t1                                producto = a * b    <- temporal eliminado
+   t2 = a * b                               potencia = 256      <- constante plegada
+   producto = t2                            param "suma     ="
+   potencia = 256   (2 ** 8 plegado)        ...
+   ...
+
+   Resumen: 1 plegado de constantes, 2 temporales propagados, 0 lineas muertas.
+   La interfaz web muestra ambas versiones lado a lado.
+
+
+================================================================================
+7. CASOS DE PRUEBA
+================================================================================
+
+Se presentan 6 programas de ejemplo (carpeta examples/ del repositorio). Para
+cada uno se indica el codigo fuente, un resumen de las fases y la SALIDA REAL de
+ejecucion producida por el compilador.
+
+--------------------------------------------------------------------------------
+CASO 1 - examples/01_basico.sg  (declaraciones, aritmetica y operadores nuevos)
+--------------------------------------------------------------------------------
+Codigo (fragmento):
+   int a = 10;  int b = 5;
+   int potencia = 2 ** 8;
+   println("2 ** 8   =", potencia);
+   println("a es divisible por 5:", a %% 5);
+
+Lexico    : 66 tokens, sin errores.
+Sintactico: sin errores (AST y CST generados).
+Semantico : 6 simbolos (a, b, resultado, suma, producto, potencia), sin errores.
+Intermedio: 21 -> 19 instrucciones; 1 plegado, 2 temporales propagados.
+Salida:
+   suma     = 15
+   producto = 50
+   2 ** 8   = 256
+   a es divisible por 5: true
+Estado: EXITOSO
+
+--------------------------------------------------------------------------------
+CASO 2 - examples/02_control.sg  (control de flujo, for-in con rango, swap)
+--------------------------------------------------------------------------------
+Codigo (fragmento):
+   x >< y;                       // swap
+   for i in 1..5 { total += i; }
+   while (n <= 10) { if (n %% 2) { println(n, "es par"); } n++; }
+
+Lexico: 116 tokens. Semantico: 5 simbolos, sin errores.
+Salida:
+   antes:  x = 3  y = 7
+   despues: x = 7  y = 3
+   suma de 1..5 = 15
+   ambos positivos
+   2 es par
+   4 es par
+   6 es par
+   8 es par
+   10 es par
+Estado: EXITOSO
+
+--------------------------------------------------------------------------------
+CASO 3 - examples/03_funciones.sg  (funciones, pipe |>, recursion, <=>)
+--------------------------------------------------------------------------------
+Codigo (fragmento):
+   int r = 5 |> doble |> incrementar;   // == incrementar(doble(5)) == 11
+   println("factorial(5) =", factorial(5));
+
+Lexico: 99 tokens. Semantico: sin errores. Incluye recursion (factorial).
+Salida:
+   5 |> doble |> incrementar = 11
+   factorial(5) = 120
+   3 <=> 7 = -1
+   9 <=> 9 = 0
+Estado: EXITOSO
+
+--------------------------------------------------------------------------------
+CASO 4 - examples/04_errores.sg  (deteccion de errores semanticos)
+--------------------------------------------------------------------------------
+Codigo (fragmento con errores intencionales):
+   int a = 5;  int a = 10;    // redeclaracion
+   b = 3;                     // no declarada
+   int c = "texto";           // tipo incompatible
+   break;                     // fuera de bucle
+
+Lexico y sintactico: sin errores.  Semantico: 7 ERRORES detectados (ver 5.4).
+El programa NO se ejecuta por tener errores.
+Estado: CON ERRORES  (comportamiento esperado - demuestra el analisis semantico)
+
+--------------------------------------------------------------------------------
+CASO 5 - examples/05_completo.sg  (programa completo con main, funciones, builtins)
+--------------------------------------------------------------------------------
+Codigo (fragmento):
+   int esPrimo(int n) { ... }
+   void main() {
+       for i in 1..20 { if (esPrimo(i)) { print(i, ""); } }
+       float h = sqrt(pow(3.0,2.0) + pow(4.0,2.0));   // hipotenusa 3-4-5
+       string saludo = "Hola" + " " + "Sigil";
+   }
+
+Lexico: 141 tokens. Semantico: 5 simbolos en distintos niveles de alcance.
+Salida:
+   == Numeros primos del 1 al 20 ==
+   2 3 5 7 11 13 17 19
+   hipotenusa(3,4) = 5
+   Hola Sigil tiene 10 caracteres
+Estado: EXITOSO
+
+--------------------------------------------------------------------------------
+CASO 6 - examples/06_arrays.sg  (arreglos y funciones de cadena)
+--------------------------------------------------------------------------------
+Codigo (fragmento):
+   int[] nums = [10, 20, 30, 40];
+   nums[1] = 99;
+   for x in nums { suma += x; }
+   string s = "Hola Mundo";
+   println("substr(0,4):", substr(s, 0, 4));
+
+Lexico: 147 tokens. Semantico: nums:int[], s:string, sin errores.
+Salida:
+   cantidad: 4
+   primer elemento: 10
+   tras editar nums[1]: 99
+   suma del arreglo: 179
+   mayus: HOLA MUNDO
+   minus: hola mundo
+   substr(0,4): Hola
+   charAt(5): M
+   indexOf('Mundo'): 5
+   longitud: 10
+Estado: EXITOSO
+
+(Las capturas de pantalla de la interfaz web se encuentran en docs/img/ del
+repositorio: editor con resaltado, AST, CST, codigo intermedio y salida.)
+
+
+================================================================================
+8. ARQUITECTURA DEL PROYECTO
+================================================================================
+
+8.1 DIAGRAMA GENERAL DEL SISTEMA
+--------------------------------------------------------------------------------
+
+   codigo fuente (.sg)
+          |
+          v
+   +----------------+   tokens   +----------------+  CST/AST  +----------------+
+   |  LEXER         |----------->|  PARSER        |---------->|  SEMANTICO     |
+   |  (lexer.cpp)   |            |  (parser.cpp)  |           |  (semantic.cpp)|
+   +----------------+            +----------------+           +----------------+
+                                                                      | AST tipado
+                                                                      v
+   +----------------+   ejecuta  +----------------+   TAC     +----------------+
+   |  INTERPRETE    |<-----------|  (usa el AST)  |   <-------|  GEN. TAC +    |
+   |  (interpreter) |            |                |           |  OPTIMIZADOR   |
+   +----------------+            +----------------+           |  (tac.cpp)     |
+          |                                                   +----------------+
+          v
+     salida del programa
+
+   Todas las fases las orquesta el driver main.cpp, que puede emitir el
+   resultado en tres formatos: legible (--pretty), resumido (--resumen) o
+   JSON (--json). El formato JSON lo consume la interfaz web.
+
+   +------------------- INTERFAZ WEB -------------------+
+   |  Navegador (web/: index.html, style.css, app.js)  |
+   |        ^  peticion /api/compile (JSON)             |
+   |        v                                           |
+   |  Servidor local en Python (server/server.py)      |
+   |        -> invoca  bin/sigilc.exe  --json           |
+   +---------------------------------------------------+
+
+8.2 DESCRIPCION DE MODULOS Y ARCHIVOS
+--------------------------------------------------------------------------------
+   src/config.hpp       Identidad del lenguaje (nombre, extension, version).
+   src/token.hpp        Estructura Token y palabras reservadas.
+   src/lexer.hpp/.cpp   Analizador lexico.
+   src/ast.hpp          Nodo generico de arbol (comun a CST y AST) + impresion + JSON.
+   src/parser.hpp/.cpp  Analizador sintactico (construye CST y AST).
+   src/symbol.hpp       Tabla de simbolos con pila de alcances.
+   src/semantic.hpp/.cpp Analizador semantico (tipos, alcances, errores).
+   src/tac.hpp/.cpp     Generacion de codigo intermedio + optimizador.
+   src/interpreter.hpp/.cpp  Interprete (ejecuta el AST).
+   src/json.hpp         Utilidades para serializar la salida a JSON.
+   src/main.cpp         Driver: orquesta las fases y elige el formato de salida.
+   web/                 Interfaz web (editor con resaltado, arboles, pestanas).
+   server/server.py     Servidor local que conecta la web con el compilador.
+   examples/            Programas de ejemplo (.sg).
+   CMakeLists.txt       Configuracion de compilacion (Visual Studio / VS Code).
+
+   Decision de diseno: tanto el CST como el AST usan un unico tipo de nodo
+   generico {tipo, valor, hijos, tipo_dato, linea}. Esto simplifica el codigo y
+   permite que todas las fases recorran la misma estructura.
+
+
+================================================================================
+9. CONCLUSIONES
+================================================================================
+
+Se logro construir un compilador didactico completo y funcional para un lenguaje
+propio, que abarca las cinco fases clasicas: analisis lexico, sintactico y
+semantico, generacion de codigo intermedio con optimizacion, y ejecucion mediante
+un interprete. El resultado no solo valida programas, sino que los corre y produce
+salida real, lo que hace mucho mas tangible el aprendizaje.
+
+Principales aprendizajes:
+   - La importancia de separar responsabilidades en fases y modulos: pasar de un
+     unico archivo a un proyecto modular facilito anadir el semantico, el TAC, el
+     interprete y hasta operadores y tipos nuevos (arreglos, cadenas) sin romper
+     lo anterior.
+   - El manejo de la precedencia y asociatividad de operadores mediante niveles de
+     funciones en el parser descendente recursivo.
+   - La utilidad de una representacion intermedia (TAC) como puente entre el
+     analisis y la generacion/optimizacion de codigo.
+   - El valor de acumular errores por fase (en lugar de abortar) para dar un mejor
+     diagnostico al usuario.
+
+Dificultades encontradas:
+   - Distinguir en el lexer secuencias ambiguas como "1..5" (rango) frente a un
+     flotante, o "<=>" frente a "<=", resuelto priorizando los operadores mas
+     largos.
+   - Disenar reglas de tipos coherentes (ensanchamiento int->float, condiciones
+     numericas al estilo C) y una tabla de simbolos con alcances correcta.
+   - Configurar el entorno de compilacion en Windows (MSVC + Windows SDK).
+
+Posibles mejoras futuras:
+   - Numeros de linea en el editor e ir directamente al error al hacer clic.
+   - Mas estructuras: switch/case, diccionarios, entrada por teclado, interpolacion
+     de cadenas.
+   - Optimizaciones adicionales (propagacion de constantes entre variables,
+     simplificaciones algebraicas) y generacion de codigo objeto real.
+   - Exportar el AST/CST como imagen y resaltar en el codigo el nodo seleccionado.
+
+
+================================================================================
+10. ANEXOS
+================================================================================
+
+   - Codigo fuente completo (repositorio GitHub):
+        https://github.com/Seb0401/sigil-compiler
+
+   - Capturas de pantalla de la interfaz web (carpeta docs/img/ del repositorio):
+        01_editor.png   Editor con resaltado de sintaxis.
+        02_salida.png   Pestana de salida de ejecucion.
+        03_ast.png      Arbol sintactico abstracto (AST).
+        04_cst.png      Arbol sintactico concreto (CST).
+        05_tac.png      Codigo intermedio: generado vs optimizado.
+
+   - Como compilar y ejecutar (ver README.md del repositorio):
+        1) Compilar el compilador:  build_manual.bat  (o Visual Studio / CMake).
+        2) Ejecutar por consola   :  sigil.bat  examples/05_completo.sg
+        3) Abrir la interfaz web  :  iniciar_web.bat  ->  http://localhost:8000
+
+================================================================================
+                              FIN DEL DOCUMENTO
+================================================================================
