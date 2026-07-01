@@ -1,0 +1,13 @@
+// Ejemplo 1 — Declaraciones, aritmetica y operadores nuevos
+int a = 10;
+int b = 5;
+float resultado = 3.14;
+
+int suma = a + b;
+int producto = a * b;
+int potencia = 2 ** 8;        // operador potencia -> 256
+
+println("suma     =", suma);
+println("producto =", producto);
+println("2 ** 8   =", potencia);
+println("a es divisible por 5:", a %% 5);   // operador divisible -> true

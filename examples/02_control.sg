@@ -1,0 +1,30 @@
+// Ejemplo 2 — Control de flujo, for-in con rango y swap
+int x = 3;
+int y = 7;
+
+println("antes:  x =", x, " y =", y);
+x >< y;                         // operador swap: intercambia valores
+println("despues: x =", x, " y =", y);
+
+// for-in con rango 1..5
+int total = 0;
+for i in 1..5 {
+    total += i;
+}
+println("suma de 1..5 =", total);
+
+// if / else con operadores logicos
+if (x > 0 && y > 0) {
+    println("ambos positivos");
+} else {
+    println("alguno no positivo");
+}
+
+// while con divisible
+int n = 1;
+while (n <= 10) {
+    if (n %% 2) {
+        println(n, "es par");
+    }
+    n++;
+}

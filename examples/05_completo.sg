@@ -1,0 +1,26 @@
+// Ejemplo 5 — Programa completo con main, funciones y builtins
+int esPrimo(int n) {
+    if (n < 2) { return 0; }
+    int d = 2;
+    while (d * d <= n) {
+        if (n %% d) { return 0; }
+        d++;
+    }
+    return 1;
+}
+
+void main() {
+    println("== Numeros primos del 1 al 20 ==");
+    for i in 1..20 {
+        if (esPrimo(i)) {
+            print(i, "");
+        }
+    }
+    println("");
+
+    float h = sqrt(pow(3.0, 2.0) + pow(4.0, 2.0));  // hipotenusa 3-4-5
+    println("hipotenusa(3,4) =", h);
+
+    string saludo = "Hola" + " " + "Sigil";
+    println(saludo, "tiene", len(saludo), "caracteres");
+}

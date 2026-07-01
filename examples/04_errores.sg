@@ -1,0 +1,15 @@
+// Ejemplo 4 — Caso con ERRORES SEMANTICOS (para demostrar el chequeo)
+int a = 5;
+int a = 10;                 // error: redeclaracion en el mismo alcance
+
+b = 3;                      // error: 'b' no declarada
+
+int c = "texto";           // error: asignar string a int
+
+float r = sqrt(a, c);      // error: sqrt espera 1 argumento, recibio 2
+
+bool ok = a && true;       // error: '&&' requiere operandos bool (a es int)
+
+int z = noExiste(5);       // error: funcion 'noExiste' no declarada
+
+break;                     // error: 'break' fuera de un bucle

@@ -1,0 +1,25 @@
+// Ejemplo 3 — Funciones, pipe (|>) y recursion
+int doble(int n) {
+    return n * 2;
+}
+
+int incrementar(int n) {
+    return n + 1;
+}
+
+int factorial(int n) {
+    if (n <= 1) {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+// Operador pipe:  5 |> doble |> incrementar  ==  incrementar(doble(5))
+int r = 5 |> doble |> incrementar;
+println("5 |> doble |> incrementar =", r);     // 11
+
+println("factorial(5) =", factorial(5));        // 120
+
+// comparacion de tres vias <=>
+println("3 <=> 7 =", 3 <=> 7);                  // -1
+println("9 <=> 9 =", 9 <=> 9);                  //  0

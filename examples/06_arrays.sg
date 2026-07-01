@@ -1,0 +1,23 @@
+// Ejemplo 6 — Arreglos y funciones de cadena
+int[] nums = [10, 20, 30, 40];
+println("cantidad:", len(nums));
+println("primer elemento:", nums[0]);
+
+nums[1] = 99;                 // asignacion a indice
+println("tras editar nums[1]:", nums[1]);
+
+// recorrer con foreach y acumular
+int suma = 0;
+for x in nums {
+    suma += x;
+}
+println("suma del arreglo:", suma);
+
+// funciones de cadena
+string s = "Hola Mundo";
+println("mayus:", upper(s));
+println("minus:", lower(s));
+println("substr(0,4):", substr(s, 0, 4));
+println("charAt(5):", charAt(s, 5));
+println("indexOf('Mundo'):", indexOf(s, "Mundo"));
+println("longitud:", len(s));
