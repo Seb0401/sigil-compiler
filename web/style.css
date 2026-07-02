@@ -169,31 +169,29 @@ td.mono { font-family: var(--mono); }
 .mini { padding: 4px 10px; font-size: 12px; border-radius: 7px; background: var(--bg3); border: 1px solid var(--border2); }
 .mini:hover { border-color: var(--accent); }
 .tt-hint { color: var(--muted); font-size: 11px; margin-left: auto; }
-.tree-scroll { flex: 1; overflow: auto; padding: 30px 20px; }
+.tree-scroll { flex: 1; overflow: auto; padding: 14px 18px; }
 
-.chart { display: inline-block; min-width: 100%; transform-origin: top left; }
-.chart ul { position: relative; padding-top: 22px; display: flex; justify-content: center; margin: 0; }
-.chart li { list-style: none; position: relative; padding: 22px 6px 0; text-align: center; }
-/* conectores */
-.chart li::before, .chart li::after {
-  content: ""; position: absolute; top: 0; right: 50%;
-  width: 50%; height: 22px; border-top: 2px solid var(--border2);
+/* Árbol indentado (hacia el costado, estilo explorador de archivos) */
+.chart { display: inline-block; min-width: 100%; transform-origin: top left; font-family: var(--mono); }
+.chart ul { list-style: none; margin: 0; padding-left: 22px; position: relative; }
+.chart > ul { padding-left: 2px; }
+.chart li { position: relative; padding: 2px 0; }
+/* guías de conexión: línea vertical + codo horizontal hacia cada nodo */
+.chart ul > li::before {
+  content: ""; position: absolute; left: -12px; top: 0;
+  width: 0; height: 100%; border-left: 1px solid var(--border2);
 }
-.chart li::after { right: auto; left: 50%; border-left: 2px solid var(--border2); }
-.chart li:only-child::after, .chart li:only-child::before { display: none; }
-.chart li:only-child { padding-top: 0; }
-.chart li:first-child::before, .chart li:last-child::after { border: 0 none; }
-.chart li:last-child::before { border-right: 2px solid var(--border2); border-radius: 0 6px 0 0; }
-.chart li:first-child::after { border-radius: 6px 0 0 0; }
-.chart ul ul::before {
-  content: ""; position: absolute; top: 0; left: 50%;
-  border-left: 2px solid var(--border2); width: 0; height: 22px;
+.chart ul > li:last-child::before { height: 15px; }         /* la vertical termina en el codo */
+.chart ul > li::after {
+  content: ""; position: absolute; left: -12px; top: 15px;
+  width: 11px; height: 0; border-top: 1px solid var(--border2);
 }
+.chart > ul > li::before, .chart > ul > li::after { display: none; }  /* la raíz no lleva guía */
 .chart li.collapsed > ul { display: none; }
 
 .node {
   display: inline-block; position: relative; cursor: default;
-  padding: 6px 11px; border-radius: 9px; font-family: var(--mono); font-size: 12.5px;
+  padding: 4px 10px; border-radius: 8px; font-family: var(--mono); font-size: 12.5px;
   background: var(--bg3); border: 1px solid var(--border2); white-space: nowrap;
   transition: .12s;
 }
