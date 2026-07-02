@@ -56,6 +56,31 @@ std::vector<std::string> palabras(const std::string& s) {
     return out;
 }
 
+// ¿La línea rompe el bloque basico o puede tener efectos (no cruzar)?
+bool esFrontera(const std::string& l) {
+    if (l.empty()) return false;
+    if (l.back() == ':') return true;                       // etiqueta
+    if (l.rfind("goto ", 0) == 0 || l.rfind("ifFalse ", 0) == 0) return true;
+    if (l.rfind("func ", 0) == 0 || l.rfind("endfunc", 0) == 0) return true;
+    if (l.rfind("return", 0) == 0) return true;
+    if (l.find("call ") != std::string::npos) return true;  // una llamada puede tocar globales
+    return false;
+}
+
+// Es seguro inlinar  t = rhs  (definido en dLine) en su uso (uLine) solo si
+// entre ambas lineas no hay fronteras ni se reasigna ningun operando de rhs.
+bool inlineSeguro(const std::vector<std::string>& L, int dLine, int uLine, const std::string& rhs) {
+    if (dLine >= uLine) return false;
+    std::vector<std::string> ops = palabras(rhs);
+    for (int k = dLine + 1; k < uLine; ++k) {
+        if (esFrontera(L[k])) return false;
+        std::string dd, rr;
+        if (esAsignacion(L[k], dd, rr))
+            for (auto& o : ops) if (o == dd) return false;  // un operando fue reasignado
+    }
+    return true;
+}
+
 std::vector<std::string> optimizar(const std::vector<std::string>& in, int& propag, int& elim) {
     std::vector<std::string> L(in);
     propag = 0; elim = 0;
@@ -83,7 +108,8 @@ std::vector<std::string> optimizar(const std::vector<std::string>& in, int& prop
             if (!esAsignacion(L[i], dst, rhs)) continue;
             if (!esTemp(rhs)) continue;              // rhs debe ser exactamente un temporal
             std::string t = rhs;
-            if (defLinea.count(t) && usos[t] == 1 && !tieneCall(defRhs[t])) {
+            if (defLinea.count(t) && usos[t] == 1 && !tieneCall(defRhs[t]) &&
+                inlineSeguro(L, defLinea[t], i, defRhs[t])) {
                 L[i] = dst + " = " + defRhs[t];      // inlina la expresión
                 L.erase(L.begin() + defLinea[t]);    // borra la definición
                 propag++; cambio = true;
