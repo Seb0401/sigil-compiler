@@ -51,13 +51,22 @@ function resaltar(code) {
 
 const codeEl = $("#code");
 const hlEl = $("#highlight").querySelector("code");
+const gutInner = $("#gutterinner");
+function actualizarGutter(v) {
+  const n = (v.match(/\n/g) || []).length + 1;
+  let s = "";
+  for (let i = 1; i <= n; i++) s += i + "\n";
+  gutInner.textContent = s;
+}
 function pintarEditor() {
   const v = codeEl.value;
   hlEl.innerHTML = resaltar(v) + (v.endsWith("\n") ? " " : "");
+  actualizarGutter(v);
 }
 function syncScroll() {
   const pre = $("#highlight");
   pre.scrollTop = codeEl.scrollTop; pre.scrollLeft = codeEl.scrollLeft;
+  gutInner.style.transform = `translateY(${-codeEl.scrollTop}px)`;
   const inner = $("#errinner");
   if (inner) inner.style.transform = `translate(${-codeEl.scrollLeft}px, ${-codeEl.scrollTop}px)`;
 }
