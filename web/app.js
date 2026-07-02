@@ -257,13 +257,30 @@ function pintarTAC(d) {
   const colGen = gen.map((l, i) => fmt(l, i, true)).join("");
   const colOpt = opt.map((l, i) => fmt(l, i, false)).join("");
   const red = gen.filter((x) => x.trim()).length - opt.filter((x) => x.trim()).length;
+  const card = (n, titulo, desc, ej) => `
+    <div class="opt-card">
+      <div class="opt-h"><span class="opt-badge">${n}</span>${titulo}</div>
+      <p>${desc}</p>
+      <div class="opt-ej">${ej}</div>
+    </div>`;
   return `<div class="taccols">
       <div class="taccol"><h4>Generado</h4><div class="tacbox"><div class="tac">${colGen}</div></div></div>
       <div class="taccol"><h4>Optimizado <span class="tag">✓</span></h4><div class="tacbox"><div class="tac">${colOpt}</div></div></div>
     </div>
-    <div class="opt"><b>Optimizaciones aplicadas:</b>
-      plegado de constantes: ${d.pliegues || 0} · temporales propagados: ${d.propagaciones || 0} · líneas muertas: ${d.eliminadas || 0}
-      ${red > 0 ? `<br>Reducción total: <b>${red}</b> instrucción(es) menos.` : ""}
+    <div class="opt">
+      <b>¿Qué es cada optimización?</b> El número indica cuántas veces se aplicó en este programa.
+      ${red > 0 ? `En total el código pasó de ${gen.filter((x) => x.trim()).length} a ${opt.filter((x) => x.trim()).length} instrucciones (<b>${red} menos</b>).` : ""}
+      <div class="opt-grid">
+        ${card(d.pliegues || 0, "Plegado de constantes",
+          "Si una operación es entre valores fijos (conocidos al compilar), se calcula ahora y se reemplaza por el resultado, para no repetir el cálculo al ejecutar.",
+          "<span class='b'>antes:</span> potencia = 2 ** 8<br><span class='a'>después:</span> potencia = 256")}
+        ${card(d.propagaciones || 0, "Temporales propagados",
+          "El compilador crea variables temporales (t1, t2…) para pasos intermedios. Si una temporal solo sirve para copiarse a otra variable, se elimina y se usa directamente su expresión.",
+          "<span class='b'>antes:</span> t1 = a + b ; suma = t1<br><span class='a'>después:</span> suma = a + b")}
+        ${card(d.eliminadas || 0, "Líneas muertas",
+          "Código muerto = instrucciones cuyo resultado nunca se usa. Como no afectan al programa, se eliminan para dejar el código más pequeño.",
+          "<span class='b'>antes:</span> t3 = a * 2   (t3 no se usa nunca)<br><span class='a'>después:</span> (línea eliminada)")}
+      </div>
     </div>`;
 }
 
